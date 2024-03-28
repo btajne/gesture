@@ -1,0 +1,150 @@
+import argparse
+import sys
+import time
+import cv2
+import mediapipe as mp
+from gpiozero import Motor, LED
+
+# GPIO setup
+enable_pin = 25
+in1_pin = 24
+in2_pin = 23
+motor = Motor(forward=in1_pin, backward=in2_pin, enable=enable_pin)
+
+# LED setup
+LED_PIN = 17  # Change this to the GPIO pin you are using for the LED
+led = LED(LED_PIN)
+
+# Gesture recognition setup
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+# Timer and state variables
+start_time_motor = None
+start_time_led = None
+motor_active = False
+led_state = False
+
+# Function to activate the motor
+def activate_motor():
+    global motor_active
+    if not motor_active:
+        motor.forward()
+        motor_active = True
+        print("Motor activated")
+
+# Function to deactivate the motor
+def deactivate_motor():
+    global motor_active
+    if motor_active:
+        motor.stop()
+        motor_active = False
+        print("Motor deactivated")
+
+# Function to activate the LED
+def activate_led():
+    global led_state
+    if not led_state:
+        led.on()
+        led_state = True
+        print("LED activated")
+
+# Function to deactivate the LED
+def deactivate_led():
+    global led_state
+    if led_state:
+        led.off()
+        led_state = False
+        print("LED deactivated")
+
+# Gesture recognition function
+def detect_gestures(image):
+    global start_time_motor, start_time_led, motor_active, led_state
+
+    with mp_hands.Hands(static_image_mode=False, max_num_hands=1) as hands:
+        results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+        if results.multi_hand_landmarks:
+            hand_landmarks = results.multi_hand_landmarks[0]
+
+            # Check if index finger is held
+            if hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y:
+                if start_time_motor is None:
+                    start_time_motor = time.time()  # Start the timer for motor
+                else:
+                    elapsed_time = time.time() - start_time_motor
+                    if elapsed_time >= 3:
+                        if not motor_active:
+                            activate_motor()
+                        else:
+                            deactivate_motor()
+                        start_time_motor = None  # Reset the timer for motor
+            else:
+                start_time_motor = None  # Reset the timer for motor
+
+            # Check if victory sign (index and middle fingers up)
+            if (
+                hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y and
+                hand_landmarks.landmark[12].y < hand_landmarks.landmark[10].y
+            ):
+                if start_time_led is None:
+                    start_time_led = time.time()  # Start the timer for LED
+                else:
+                    elapsed_time = time.time() - start_time_led
+                    if elapsed_time >= 3:
+                        if not led_state:
+                            activate_led()
+                        else:
+                            deactivate_led()
+                        start_time_led = None  # Reset the timer for LED
+            else:
+                start_time_led = None  # Reset the timer for LED
+
+            # Draw landmarks on the image
+            mp_drawing.draw_landmarks(
+                image,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS,
+                mp_drawing_styles.get_default_hand_landmarks_style(),
+                mp_drawing_styles.get_default_hand_connections_style()
+            )
+
+# Main function
+def run_gesture_recognition(camera_id: int, width: int, height: int):
+    # Start capturing video input from the camera
+    cap = cv2.VideoCapture(camera_id)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    # Continuously capture images from the camera and run inference
+    while cap.isOpened():
+        success, image = cap.read()
+        if not success:
+            sys.exit('ERROR: Unable to read from webcam.')
+
+        image = cv2.flip(image, 1)
+        detect_gestures(image)
+
+        cv2.imshow('Hand Gestures', image)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Stop the motor and LED, and release resources
+    motor.stop()
+    led.off()
+    cap.release()
+    cv2.destroyAllWindows()
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--cameraId', help='ID of the camera.', required=False, default=0)
+    parser.add_argument('--width', help='Width of the frame captured from the camera.', required=False, default=640)
+    parser.add_argument('--height', help='Height of the frame captured from the camera.', required=False, default=480)
+    args = parser.parse_args()
+
+    run_gesture_recognition(int(args.cameraId), int(args.width), int(args.height))
+
+if __name__ == '__main__':
+    main()
+
