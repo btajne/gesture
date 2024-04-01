@@ -1,0 +1,28 @@
+from gpiozero import Motor
+
+# GPIO setup
+enable_pin = 25
+in1_pin = 24
+in2_pin = 23
+motor = Motor(forward=in1_pin, backward=in2_pin, enable=enable_pin)
+
+# Function to move the motor forward indefinitely
+def move_motor_forward():
+    motor.forward()
+
+# Main function
+def main():
+    # Move the motor forward indefinitely
+    move_motor_forward()
+
+    # Keep the program running until interrupted
+    try:
+        while True:
+            continue
+    except KeyboardInterrupt:
+        # Stop the motor when interrupted
+        motor.stop()
+
+if __name__ == '__main__':
+    main()
+
