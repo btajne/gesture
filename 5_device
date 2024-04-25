@@ -1,0 +1,104 @@
+import cv2
+import mediapipe as mp
+from collections import Counter
+import time
+import RPi.GPIO as GPIO  # Import the GPIO library for Raspberry Pi
+
+# Initialize the Raspberry Pi GPIO
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+# Define the GPIO pins for the relays
+relay_pins = [18, 23, 24, 25, 12]  # Change these to the appropriate GPIO pins
+
+# Set the GPIO pins as output
+for pin in relay_pins:
+    GPIO.setup(pin, GPIO.OUT)
+    GPIO.output(pin, GPIO.HIGH)  # Initially turn off all relays
+
+mp_drawing = mp.solutions.drawing_utils
+mp_hands = mp.solutions.hands
+
+# Initialize the webcam
+cap = cv2.VideoCapture(1)
+
+# Check if the camera is opened successfully
+if not cap.isOpened():
+    print("Error: Could not open the camera.")
+    exit()
+
+with mp_hands.Hands(
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
+    max_num_hands=2
+) as hands:
+    while True:
+        success, image = cap.read()
+        if not success:
+            print("Error: Could not read the camera frame.")
+            continue
+
+        # Flip the image horizontally for a later re-flip
+        image = cv2.flip(image, 1)
+
+        # Convert the image to RGB format
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Process the image and detect hands
+        results = hands.process(image_rgb)
+
+        # Draw hand annotations on the image
+        image_height, image_width, _ = image.shape
+        annotated_image = image.copy()
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Get the number of fingers up and down
+                fingers_up = 0
+                fingers_down = 0
+                for finger_index in range(1, 5):  # Thumb is ignored
+                    finger_pip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP + 3 * finger_index]
+                    finger_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP + 3 * finger_index]
+                    if finger_pip.y < finger_tip.y:
+                        fingers_up += 1
+                    else:
+                        fingers_down += 1
+
+                # Control the relays based on the number of fingers up and down
+                if fingers_up == 1 and fingers_down == 4:
+                    start_time = time.time()
+                    while True:
+                        current_time = time.time()
+                        elapsed_time = current_time - start_time
+                        if elapsed_time >= 3:
+                            GPIO.output(relay_pins[0], not GPIO.input(relay_pins[0]))  # Toggle relay 1
+                            break
+                elif fingers_up == 2 and fingers_down == 3:
+                    start_time = time.time()
+                    while True:
+                        current_time = time.time()
+                        elapsed_time = current_time - start_time
+                        if elapsed_time >= 3:
+                            GPIO.output(relay_pins[1], not GPIO.input(relay_pins[1]))  # Toggle relay 2
+                            break
+                # Add more conditions for the other relays here
+
+                # Draw the hand landmarks
+                mp_drawing.draw_landmarks(
+                    annotated_image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        # Re-flip the image horizontally for display
+        annotated_image = cv2.flip(annotated_image, 1)
+
+        # Display the annotated image
+        cv2.imshow('Hand Tracking', annotated_image)
+
+        # Quit the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+# Clean up
+cap.release()
+cv2.destroyAllWindows()
+GPIO.cleanup()
+
