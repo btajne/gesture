@@ -1,0 +1,253 @@
+import tkinter as tk
+from tkinter import Frame, Label, Button, ttk, simpledialog
+from datetime import datetime
+import smtplib
+import threading
+import serial
+
+# Serial port configuration
+SERIAL_PORT = 'COM6'
+BAUD_RATE = 9600
+
+global_id_list = []  # Global variable to hold the list of matched IDs
+
+class AttendanceSystem:
+    def __init__(self, root):  # Corrected method name
+        self.root = root
+        self.serial_port = None
+        self.received_ids = set()
+        self.id_name_mapping = {}
+        self.id_lists = {}  # Dictionary to store lists for each ID
+
+        self.setup_ui()
+        self.connect_serial()
+
+    def setup_ui(self):
+        self.root.geometry('700x600')
+        self.root.title("Attendance System")
+
+        heading_label = Label(self.root, text="FINGERPRINT BASED ATTENDANCE SYSTEM", font=('Helvetica', 16, 'bold'),
+                              fg='black', bg='grey')
+        heading_label.pack(pady=20)
+
+        btn_close = Button(self.root, text="Close Window", command=self.close_window, bg="red", fg="white",
+                           font=('Helvetica', 12, 'bold'))
+        btn_close.pack(side="bottom", anchor="se", padx=10, pady=10)
+
+        btn_send_email = Button(self.root, text="Send Email", command=self.send_email, bg="green", fg="white",
+                                font=('Helvetica', 12, 'bold'))
+        btn_send_email.place(relx=0.23, rely=0.28, anchor='se', bordermode='outside')
+
+        enroll_button = ttk.Button(self.root, text="Enroll", command=self.on_enroll, style='Enroll.TButton')
+        enroll_button.place(relx=0.5, rely=0.5, anchor='center')
+
+        style = ttk.Style()
+        style.configure('Enroll.TButton', foreground='blue', font=('Helvetica', 12, 'bold'))
+
+        btn_scan = Button(self.root, text="Scan", command=self.scan, bg="black", fg="white",
+                          font=('Helvetica', 12, 'bold'))
+        btn_scan.place(relx=0.83, rely=0.5, anchor='center')
+
+        btn_list_ids = Button(self.root, text="List IDs", command=self.print_received_ids, bg="orange", fg="white",
+                              font=('Helvetica', 12, 'bold'))
+        btn_list_ids.place(relx=0.5, rely=0.7, anchor='center')
+
+        # Adding project contributor and guide information
+        project_contributors_label = Label(self.root, text="Project Contributors:", font=('Helvetica', 12, 'bold'))
+        project_contributors_label.place(x=50, y=200)
+
+        contributors = [
+            "Mayur Bhisekar",
+            "Rohit Gawande",
+            "Bhavesh Mishra",
+            "Sharda Pawar"
+        ]
+
+        # Displaying project contributors
+        for i, contributor in enumerate(contributors):
+            contributor_label = Label(self.root, text=contributor, font=('Helvetica', 12))
+            contributor_label.place(x=50, y=230 + i * 20)
+
+        guide_label = Label(self.root, text="Project Guide:", font=('Helvetica', 12, 'bold'))
+        guide_label.place(x=50, y=320)
+
+        guide_name_label = Label(self.root, text="Prof. Mahesh Sadavarte", font=('Helvetica', 12))
+        guide_name_label.place(x=50, y=340)
+
+        self.time_label = Label(self.root, text="Current Time: ", font=('Helvetica', 14), fg='white', bg='blue')
+        self.time_label.place(relx=0.02, rely=0.97, anchor='sw', bordermode='outside')
+
+        self.update_time()
+
+    def close_window(self):
+        self.root.destroy()
+
+    def connect_serial(self):
+        if self.serial_port is None:
+            try:
+                self.serial_port = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+                print("Serial port connected")
+            except serial.SerialException as e:
+                print("Serial port error:", e)
+
+    def send_command(self, command):
+        if self.serial_port:
+            print("Sending command:", command)
+            self.serial_port.write(command.encode('utf-8'))
+
+    def on_enroll(self):
+        id_number = simpledialog.askinteger("Enroll", "Enter ID number (1-127):", parent=self.root, minvalue=1, maxvalue=127)
+        if id_number is not None:
+            name = simpledialog.askstring("Enroll", "Enter student name:", parent=self.root)
+            if name is not None:
+                self.send_command(f"enroll {id_number} {name}")
+
+    def print_received_ids(self):
+        print("List of students")
+        for id_number, name in self.id_name_mapping.items():
+            print("ID:", id_number, "Name:", name)
+            attendance_status = ''.join(self.id_lists.get(id_number, []))
+            scan_count = attendance_status.count('p')
+            print("Attendance status for ID {}: {} ({} scans)".format(id_number, attendance_status, scan_count))
+        self.display_enrolled_ids()
+
+    def display_enrolled_ids(self):
+        ids_window = tk.Toplevel(self.root)
+        ids_window.title("Enrolled IDs")
+        ids_window.geometry('400x300')
+
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=('Helvetica', 12, 'bold'), foreground="blue")
+        style.configure("Treeview", font=('Helvetica', 10), background="lightgray")
+
+        tree = ttk.Treeview(ids_window, columns=('ID', 'Name'), show='headings')
+        tree.heading('ID', text='ID')
+        tree.heading('Name', text='Name')
+
+        for id_number, name in self.id_name_mapping.items():
+            tree.insert('', 'end', values=(id_number, name))
+
+        tree.pack(fill='both', expand=True)
+
+    def send_email(self):
+        sender_email = "your_email@gmail.com"
+        receiver_email = "recipient_email@gmail.com"
+        password = "your_password"
+        subject = "Attendance Report"
+        body = "Hello, this is an attendance report."
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, password)
+        message = f"Subject: {subject}\n\n{body}"
+        server.sendmail(sender_email, receiver_email, message)
+        server.quit()
+        try:
+            self.connect_serial()
+            print("Serial port connected")
+            self.send_command("EMAIL_SENT")
+            print("Email sent command sent over UART")
+        except serial.SerialException as e:
+            print("Serial port error:", e)
+
+    def scan(self):
+        try:
+            self.connect_serial()
+            print("Serial port connected")
+            self.send_command("SCAN")  # Sending scan command over UART
+            print("Scan command sent over UART")
+        except serial.SerialException as e:
+            print("Serial port error:", e)
+
+    def receive_commands(self):
+        while True:
+            if self.serial_port:
+                command = self.serial_port.readline().strip().decode('utf-8')
+                if command:
+                    print("Received command:", command)
+                    if command.startswith("Enrolled ID:"):
+                        parts = command.split(",")
+                        id_number = int(parts[0].split(":")[1].strip())
+                        name = parts[1].split(":")[1].strip()
+                        self.id_name_mapping[id_number] = name
+                        if id_number not in self.id_lists:
+                            self.id_lists[id_number] = []  # Initialize an empty list for this ID
+                        print("Enrolled ID:", id_number, "Name:", name)
+                    elif command.startswith("SCAN_RESULT"):
+                        print("Fingerprint scan result received.")
+                        id_number = int(command.split(":")[1].strip())  # Extract ID number from the scan result
+                        print("Scanned ID:", id_number)
+                        if id_number in self.id_lists:
+                            self.id_lists[id_number].append(
+                                id_number)  # Append the matched ID to its corresponding list
+                            print("Matched ID:", id_number)  # Print the matched ID to the console
+                            scan_count = len(self.id_lists[id_number])  # Get the number of scans for this ID
+                            print(
+                                "Attendance status for ID {}: {} ({} scans)".format(id_number, self.id_lists[id_number],
+                                                                                    scan_count))  # Print the list for this ID with scan count
+                            self.received_ids.add(id_number)  # Add the matched ID to received_ids set
+                            self.append_to_global_list(id_number)  # Add the matched ID to the global list
+                            self.display_scanned_ids()  # Call the method to display scanned IDs
+                        else:
+                            print("ID:", id_number, "not enrolled yet")
+                    elif command.startswith("id"):  # Check for "id" command
+                        scanned_id = int(command.split(":")[1].strip())
+                        print("ID command received:", scanned_id)
+                        self.display_id(scanned_id)
+
+    def display_scanned_ids(self):
+        ids_window = tk.Toplevel(self.root)
+        ids_window.title("Scanned IDs")
+        ids_window.geometry('400x300')
+
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=('Helvetica', 12, 'bold'), foreground="blue")
+        style.configure("Treeview", font=('Helvetica', 10), background="lightgray")
+
+        tree = ttk.Treeview(ids_window, columns=('ID', 'Scans'), show='headings')
+        tree.heading('ID', text='Scanned ID')
+        tree.heading('Scans', text='Scans')
+
+        for scanned_id in self.received_ids:
+            scan_count = len(self.id_lists.get(scanned_id, []))
+            tree.insert('', 'end', values=(scanned_id, scan_count))
+
+        tree.pack(fill='both', expand=True)
+
+    def display_id(self, scanned_id):
+        print("Scanned ID:", scanned_id)  # Print scanned ID to console
+        id_window = tk.Toplevel(self.root)
+        id_window.title("Scanned ID")
+        id_window.geometry('200x100')
+        label = Label(id_window, text=f"Scanned ID: {scanned_id}", font=('Helvetica', 14))
+        label.pack(pady=20)
+
+    def update_time(self):
+        current_time = datetime.now().strftime("%H:%M:%S")
+        self.time_label.config(text="Current Time: " + current_time)
+        self.root.after(1000, self.update_time)
+
+    def append_to_global_list(self, matched_id):
+        global global_id_list
+        global_id_list.append(matched_id)
+        print("Updated global ID list:", global_id_list)
+
+        # Check if the ID exists in the dictionary, if not, initialize an empty list
+        if matched_id not in self.id_lists:
+            self.id_lists[matched_id] = []
+
+        # Append the matched ID to its corresponding list
+        self.id_lists[matched_id].append(matched_id)
+
+    def scan_callback(self, updated_list):
+        print("Global ID List after scanning:", updated_list)  # Print global ID list after scanning
+
+def main():
+    root = tk.Tk()
+    app = AttendanceSystem(root)
+    uart_thread = threading.Thread(target=app.receive_commands)
+    uart_thread.daemon = True
+    uart_thread.start()
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
