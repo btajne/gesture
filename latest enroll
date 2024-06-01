@@ -12,7 +12,7 @@ BAUD_RATE = 9600
 global_id_list = []  # Global variable to hold the list of matched IDs
 
 class AttendanceSystem:
-    def __init__(self, root):  # Corrected method name
+    def __init__(self, root):
         self.root = root
         self.serial_port = None
         self.received_ids = set()
@@ -83,7 +83,7 @@ class AttendanceSystem:
         self.root.destroy()
 
     def connect_serial(self):
-        if self.serial_port is None:
+        if self.serial_port is None or not self.serial_port.is_open:
             try:
                 self.serial_port = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
                 print("Serial port connected")
@@ -141,22 +141,12 @@ class AttendanceSystem:
         message = f"Subject: {subject}\n\n{body}"
         server.sendmail(sender_email, receiver_email, message)
         server.quit()
-        try:
-            self.connect_serial()
-            print("Serial port connected")
-            self.send_command("EMAIL_SENT")
-            print("Email sent command sent over UART")
-        except serial.SerialException as e:
-            print("Serial port error:", e)
+        self.send_command("EMAIL_SENT")
+        print("Email sent command sent over UART")
 
     def scan(self):
-        try:
-            self.connect_serial()
-            print("Serial port connected")
-            self.send_command("SCAN")  # Sending scan command over UART
-            print("Scan command sent over UART")
-        except serial.SerialException as e:
-            print("Serial port error:", e)
+        self.send_command("SCAN")  # Sending scan command over UART
+        print("Scan command sent over UART")
 
     def receive_commands(self):
         while True:
@@ -177,16 +167,22 @@ class AttendanceSystem:
                         id_number = int(command.split(":")[1].strip())  # Extract ID number from the scan result
                         print("Scanned ID:", id_number)
                         if id_number in self.id_lists:
-                            self.id_lists[id_number].append(
-                                id_number)  # Append the matched ID to its corresponding list
-                            print("Matched ID:", id_number)  # Print the matched ID to the console
-                            scan_count = len(self.id_lists[id_number])  # Get the number of scans for this ID
+                            # Append the matched ID to its corresponding list
+                            self.id_lists[id_number].append(id_number)
+                            # Print the matched ID to the console
+                            print("Matched ID:", id_number)
+                            # Get the number of scans for this ID
+                            scan_count = len(self.id_lists[id_number])
+                            # Print the list for this ID with scan count
                             print(
                                 "Attendance status for ID {}: {} ({} scans)".format(id_number, self.id_lists[id_number],
-                                                                                    scan_count))  # Print the list for this ID with scan count
-                            self.received_ids.add(id_number)  # Add the matched ID to received_ids set
-                            self.append_to_global_list(id_number)  # Add the matched ID to the global list
-                            self.display_scanned_ids()  # Call the method to display scanned IDs
+                                                                                    scan_count))
+                            # Add the matched ID to received_ids set
+                            self.received_ids.add(id_number)
+                            # Add the matched ID to the global list
+                            self.append_to_global_list(id_number)
+                            # Call the method to display scanned IDs
+                            self.display_scanned_ids()
                         else:
                             print("ID:", id_number, "not enrolled yet")
                     elif command.startswith("id"):  # Check for "id" command
@@ -238,6 +234,9 @@ class AttendanceSystem:
         # Append the matched ID to its corresponding list
         self.id_lists[matched_id].append(matched_id)
 
+        # Print the updated global ID list after every scan
+        print("Global ID List after scanning:", global_id_list)
+
     def scan_callback(self, updated_list):
         print("Global ID List after scanning:", updated_list)  # Print global ID list after scanning
 
@@ -251,3 +250,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
