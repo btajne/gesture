@@ -1,0 +1,174 @@
+import argparse
+import sys
+import time
+import cv2
+import mediapipe as mp
+from gpiozero import LED
+
+# GPIO setup
+relay1_pin = 14
+relay2_pin = 15
+relay3_pin = 18
+relay4_pin = 23
+
+relay1 = LED(relay1_pin)
+relay2 = LED(relay2_pin)
+relay3 = LED(relay3_pin)
+relay4 = LED(relay4_pin)
+
+# Gesture recognition setup
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+# Timer variables
+start_time_relay1 = None
+start_time_relay2 = None
+start_time_relay3 = None
+start_time_relay4 = None
+
+# Gesture recognition function
+def detect_gestures(image):
+    global start_time_relay1, start_time_relay2, start_time_relay3, start_time_relay4
+
+    with mp_hands.Hands(static_image_mode=False, max_num_hands=1) as hands:
+        results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+        if results.multi_hand_landmarks:
+            hand_landmarks = results.multi_hand_landmarks[0]
+
+            # Check if index finger is held (1 finger)
+            if hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y:
+                if start_time_relay1 is None:
+                    start_time_relay1 = time.time()  # Start the timer for relay1
+                else:
+                    elapsed_time = time.time() - start_time_relay1
+                    if elapsed_time >= 3:
+                        relay1.on()
+                        relay2.off()
+                        relay3.off()
+                        relay4.off()
+                        print("Relay 1 activated")
+                        start_time_relay1 = None  # Reset the timer for relay1
+            else:
+                start_time_relay1 = None  # Reset the timer for relay1
+                relay1.off()
+
+            # Check if index and middle fingers are held (2 fingers)
+            if (
+                hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y and
+                hand_landmarks.landmark[12].y < hand_landmarks.landmark[10].y
+            ):
+                if start_time_relay2 is None:
+                    start_time_relay2 = time.time()  # Start the timer for relay2
+                else:
+                    elapsed_time = time.time() - start_time_relay2
+                    if elapsed_time >= 3:
+                        relay1.off()
+                        relay2.on()
+                        relay3.off()
+                        relay4.off()
+                        print("Relay 2 activated")
+                        start_time_relay2 = None  # Reset the timer for relay2
+            else:
+                start_time_relay2 = None  # Reset the timer for relay2
+                relay2.off()
+
+            # Check if index, middle, and ring fingers are held (3 fingers)
+            if (
+                hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y and
+                hand_landmarks.landmark[12].y < hand_landmarks.landmark[10].y and
+                hand_landmarks.landmark[16].y < hand_landmarks.landmark[14].y
+            ):
+                if start_time_relay3 is None:
+                    start_time_relay3 = time.time()  # Start the timer for relay3
+                else:
+                    elapsed_time = time.time() - start_time_relay3
+                    if elapsed_time >= 3:
+                        relay1.off()
+                        relay2.off()
+                        relay3.on()
+                        relay4.off()
+                        print("Relay 3 activated")
+                        start_time_relay3 = None  # Reset the timer for relay3
+            else:
+                start_time_relay3 = None  # Reset the timer for relay3
+                relay3.off()
+
+            # Check if all fingers are held (4 fingers)
+            if (
+                hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y and
+                hand_landmarks.landmark[12].y < hand_landmarks.landmark[10].y and
+                hand_landmarks.landmark[16].y < hand_landmarks.landmark[14].y and
+                hand_landmarks.landmark[20].y < hand_landmarks.landmark[18].y
+            ):
+                if start_time_relay4 is None:
+                    start_time_relay4 = time.time()  # Start the timer for relay4
+                else:
+                    elapsed_time = time.time() - start_time_relay4
+                    if elapsed_time >= 3:
+                        relay1.off()
+                        relay2.off()
+                        relay3.off()
+                        relay4.on()
+                        print("Relay 4 activated")
+                        start_time_relay4 = None  # Reset the timer for relay4
+            else:
+                start_time_relay4 = None  # Reset the timer for relay4
+                relay4.off()
+
+            # Draw landmarks on the image
+            mp_drawing.draw_landmarks(
+                image,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS,
+                mp_drawing_styles.get_default_hand_landmarks_style(),
+                mp_drawing_styles.get_default_hand_connections_style()
+            )
+
+# Main function
+def run_gesture_recognition(camera_id: int, width: int, height: int):
+    # Start capturing video input from the camera
+    cap = cv2.VideoCapture(camera_id)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    # Continuously capture images from the camera and run inference
+    while cap.isOpened():
+        success, image = cap.read()
+        if not success:
+            sys.exit('ERROR: Unable to read from webcam.')
+
+        image = cv2.flip(image, 1)
+        detect_gestures(image)
+
+        cv2.imshow('Hand Gestures', image)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Stop the relays and release resources
+    relay1.off()
+    relay2.off()
+    relay3.off()
+    relay4.off()
+    cap.release()
+    cv2.destroyAllWindows()
+
+def main():
+    global start_time_relay1, start_time_relay2, start_time_relay3, start_time_relay4
+
+    start_time_relay1 = None
+    start_time_relay2 = None
+    start_time_relay3 = None
+    start_time_relay4 = None
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--cameraId', help='ID of the camera.', required=False, default=0)
+    parser.add_argument('--width', help='Width of the frame captured from the camera.', required=False, default=640)
+    parser.add_argument('--height', help='Height of the frame captured from the camera.', required=False, default=480)
+    args = parser.parse_args()
+
+    run_gesture_recognition(int(args.cameraId), int(args.width), int(args.height))
+
+if __name__ == '__main__':
+    main()
